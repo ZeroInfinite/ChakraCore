@@ -145,6 +145,8 @@
 #endif
 
 
+#define MAKE_HR(errnum) (MAKE_HRESULT(SEVERITY_ERROR, FACILITY_CONTROL, errnum))
+
 #if ENABLE_CONCURRENT_GC
 // Write-barrier refers to a software write barrier implementation using a card table.
 // Write watch refers to a hardware backed write-watch feature supported by the Windows memory manager.
@@ -201,7 +203,6 @@
 #define ENABLE_PROFILE_INFO 1
 
 #define ENABLE_BACKGROUND_JOB_PROCESSOR 1
-#define ENABLE_BACKGROUND_PARSING 1
 #define ENABLE_COPYONACCESS_ARRAY 1
 #ifndef DYNAMIC_INTERPRETER_THUNK
 #if defined(_M_IX86_OR_ARM32) || defined(_M_X64_OR_ARM64)
@@ -210,6 +211,12 @@
 #define DYNAMIC_INTERPRETER_THUNK 0
 #endif
 #endif
+
+// Only enable background parser in debug build.
+#ifdef DBG
+#define ENABLE_BACKGROUND_PARSING 1
+#endif
+
 #endif
 
 #if ENABLE_NATIVE_CODEGEN
@@ -626,6 +633,9 @@
 // xplat-todo: once all the wasm tests are passing on xplat, enable it for release builds
 #if defined(_WIN32) || (defined(__clang__) && defined(ENABLE_DEBUG_CONFIG_OPTIONS))
 #define ENABLE_WASM
+#ifdef ENABLE_DEBUG_CONFIG_OPTIONS
+#define ENABLE_WABT
+#endif
 #endif
 #endif
 
@@ -665,8 +675,10 @@
 #define ENABLE_TRACE
 #endif
 
+#if !(defined(__clang__) && defined(_M_ARM32_OR_ARM64)) // xplat-todo: ARM
 #if DBG || defined(CHECK_MEMORY_LEAK) || defined(LEAK_REPORT) || defined(TRACK_DISPATCH) || defined(ENABLE_TRACE) || defined(RECYCLER_PAGE_HEAP)
 #define STACK_BACK_TRACE
+#endif
 #endif
 
 // ENABLE_DEBUG_STACK_BACK_TRACE is for capturing stack back trace for debug only.

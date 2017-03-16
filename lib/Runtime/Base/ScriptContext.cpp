@@ -1918,6 +1918,7 @@ namespace Js
     {
         Assert(!this->threadContext->IsScriptActive());
         Assert(pse != nullptr);
+        HRESULT hr = NOERROR;
         try
         {
             AUTO_NESTED_HANDLED_EXCEPTION_TYPE((ExceptionType)(ExceptionType_OutOfMemory | ExceptionType_StackOverflow));
@@ -1958,14 +1959,14 @@ namespace Js
         }
         catch (Js::OutOfMemoryException)
         {
-            pse->ProcessError(nullptr, E_OUTOFMEMORY, nullptr);
-            return nullptr;
+            hr = E_OUTOFMEMORY;
         }
         catch (Js::StackOverflowException)
         {
-            pse->ProcessError(nullptr, VBSERR_OutOfStack, nullptr);
-            return nullptr;
+            hr = VBSERR_OutOfStack;
         }
+        pse->ProcessError(nullptr, hr, nullptr);
+        return nullptr;
     }
 
     JavascriptFunction* ScriptContext::GenerateRootFunction(ParseNodePtr parseTree, uint sourceIndex, Parser* parser, uint32 grfscr, CompileScriptException * pse, const char16 *rootDisplayName)
@@ -3813,6 +3814,7 @@ namespace Js
         ScriptContext* scriptContext = function->GetScriptContext();
         bool functionEnterEventSent = false;
         char16 *pwszExtractedFunctionName = NULL;
+        size_t functionNameLen = 0;
         const char16 *pwszFunctionName = NULL;
         HRESULT hrOfEnterEvent = S_OK;
 
@@ -3872,16 +3874,16 @@ namespace Js
                         const char16 *pwszNameEnd = wcsstr(pwszToString, _u("("));
                         if (pwszNameStart == nullptr || pwszNameEnd == nullptr || ((int)(pwszNameEnd - pwszNameStart) <= 0))
                         {
-                            int len = ((JavascriptString *)sourceString)->GetLength() + 1;
-                            pwszExtractedFunctionName = new char16[len];
-                            wcsncpy_s(pwszExtractedFunctionName, len, pwszToString, _TRUNCATE);
+                            functionNameLen = ((JavascriptString *)sourceString)->GetLength() + 1;
+                            pwszExtractedFunctionName = HeapNewArray(char16, functionNameLen);
+                            wcsncpy_s(pwszExtractedFunctionName, functionNameLen, pwszToString, _TRUNCATE);
                         }
                         else
                         {
-                            int len = (int)(pwszNameEnd - pwszNameStart);
-                            AssertMsg(len > 0, "Allocating array with zero or negative length?");
-                            pwszExtractedFunctionName = new char16[len];
-                            wcsncpy_s(pwszExtractedFunctionName, len, pwszNameStart + 1, _TRUNCATE);
+                            functionNameLen = pwszNameEnd - pwszNameStart;
+                            AssertMsg(functionNameLen < INT_MAX, "Allocating array with zero or negative length?");
+                            pwszExtractedFunctionName = HeapNewArray(char16, functionNameLen);
+                            wcsncpy_s(pwszExtractedFunctionName, functionNameLen, pwszNameStart + 1, _TRUNCATE);
                         }
                         pwszFunctionName = pwszExtractedFunctionName;
                     }
@@ -3998,7 +4000,7 @@ namespace Js
                             scriptContext->OnDispatchFunctionExit(pwszFunctionName);
                             if (pwszExtractedFunctionName != NULL)
                             {
-                                delete[]pwszExtractedFunctionName;
+                                HeapDeleteArray(functionNameLen, pwszExtractedFunctionName);
                             }
                         }
                     }
@@ -4468,7 +4470,7 @@ void ScriptContext::RegisterConstructorCache(Js::PropertyId propertyId, Js::Cons
 }
 #endif
 
-JITPageAddrToFuncRangeCache * 
+JITPageAddrToFuncRangeCache *
 ScriptContext::GetJitFuncRangeCache()
 {
     return jitFuncRangeCache;
@@ -6149,7 +6151,7 @@ void ScriptContext::RegisterPrototypeChainEnsuredToHaveOnlyWritableDataPropertie
     {
         return jitPageAddrToFuncRangeMap;
     }
-    
+
     JITPageAddrToFuncRangeCache::LargeJITFuncAddrToSizeMap * JITPageAddrToFuncRangeCache::GetLargeJITFuncAddrToSizeMap()
     {
         return largeJitFuncToSizeMap;

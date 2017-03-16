@@ -919,6 +919,8 @@ NativeCodeGenerator::CodeGen(PageAllocator * pageAllocator, CodeGenWorkItem* wor
         {
             this->scriptContext->GetJitFuncRangeCache()->AddFuncRange((void*)jitWriteData.codeAddress, jitWriteData.codeSize);
         }
+        Assert(jitWriteData.codeAddress);
+        Assert(jitWriteData.codeSize);
     }
     else
     {
@@ -953,13 +955,13 @@ NativeCodeGenerator::CodeGen(PageAllocator * pageAllocator, CodeGenWorkItem* wor
             pNumberAllocator,
 #endif
             codeGenProfiler, !foreground);
-        
+
         if (!this->scriptContext->GetThreadContext()->GetPreReservedVirtualAllocator()->IsInRange((void*)jitWriteData.codeAddress))
         {
             this->scriptContext->GetJitFuncRangeCache()->AddFuncRange((void*)jitWriteData.codeAddress, jitWriteData.codeSize);
         }
     }
-    
+
     if (JITManager::GetJITManager()->IsOOPJITEnabled() && PHASE_VERBOSE_TRACE(Js::BackEndPhase, workItem->GetFunctionBody()))
     {
         LARGE_INTEGER freq;
@@ -1200,7 +1202,7 @@ void NativeCodeGenerator::LogCodeGenStart(CodeGenWorkItem * workItem, LARGE_INTE
             size_t sizeInChars = workItem->GetDisplayName(displayName, 256);
             if (sizeInChars > 256)
             {
-                displayName = new WCHAR[sizeInChars];
+                displayName = HeapNewArray(WCHAR, sizeInChars);
                 workItem->GetDisplayName(displayName, 256);
             }
             JS_ETW(EventWriteJSCRIPT_FUNCTION_JIT_START(
@@ -1215,7 +1217,7 @@ void NativeCodeGenerator::LogCodeGenStart(CodeGenWorkItem * workItem, LARGE_INTE
 
             if (displayName != displayNameBuffer)
             {
-                delete[] displayName;
+                HeapDeleteArray(sizeInChars, displayName);
             }
         }
     }
@@ -1317,7 +1319,7 @@ void NativeCodeGenerator::LogCodeGenDone(CodeGenWorkItem * workItem, LARGE_INTEG
             size_t sizeInChars = workItem->GetDisplayName(displayName, 256);
             if (sizeInChars > 256)
             {
-                displayName = new WCHAR[sizeInChars];
+                displayName = HeapNewArray(WCHAR, sizeInChars);
                 workItem->GetDisplayName(displayName, 256);
             }
             void* entryPoint;
@@ -1333,7 +1335,7 @@ void NativeCodeGenerator::LogCodeGenDone(CodeGenWorkItem * workItem, LARGE_INTEG
 
             if (displayName != displayNameBuffer)
             {
-                delete[] displayName;
+                HeapDeleteArray(sizeInChars, displayName);
             }
         }
     }
@@ -3166,18 +3168,15 @@ bool NativeCodeGenerator::TryReleaseNonHiPriWorkItem(CodeGenWorkItem* workItem)
 void
 NativeCodeGenerator::FreeNativeCodeGenAllocation(void* address)
 {
-    if(this->backgroundAllocators)
+    if (JITManager::GetJITManager()->IsOOPJITEnabled())
     {
         ThreadContext * context = this->scriptContext->GetThreadContext();
-        if (JITManager::GetJITManager()->IsOOPJITEnabled())
-        {
-            // OOP JIT TODO: need error handling?
-            JITManager::GetJITManager()->FreeAllocation(context->GetRemoteThreadContextAddr(), (intptr_t)address);
-        }
-        else
-        {
-            this->backgroundAllocators->emitBufferManager.FreeAllocation(address);
-        }
+        HRESULT hr = JITManager::GetJITManager()->FreeAllocation(context->GetRemoteThreadContextAddr(), (intptr_t)address);
+        JITManager::HandleServerCallResult(hr, RemoteCallType::MemFree);
+    }
+    else if(this->backgroundAllocators)
+    {
+        this->backgroundAllocators->emitBufferManager.FreeAllocation(address);
     }
 }
 
@@ -3196,31 +3195,18 @@ NativeCodeGenerator::QueueFreeNativeCodeGenAllocation(void* address)
         //DeRegister Entry Point for CFG
         ThreadContext::GetContextForCurrentThread()->SetValidCallTargetForCFG(address, false);
     }
-    
+
     if ((!JITManager::GetJITManager()->IsOOPJITEnabled() && !this->scriptContext->GetThreadContext()->GetPreReservedVirtualAllocator()->IsInRange((void*)address)) ||
         (JITManager::GetJITManager()->IsOOPJITEnabled() && !PreReservedVirtualAllocWrapper::IsInRange((void*)this->scriptContext->GetThreadContext()->GetPreReservedRegionAddr(), (void*)address)))
     {
         this->scriptContext->GetJitFuncRangeCache()->RemoveFuncRange((void*)address);
     }
+    // OOP JIT will always queue a job
 
     // The foreground allocators may have been used
-    ThreadContext * context = this->scriptContext->GetThreadContext();
-    if(this->foregroundAllocators)
+    if(this->foregroundAllocators && this->foregroundAllocators->emitBufferManager.FreeAllocation(address))
     {
-        if (JITManager::GetJITManager()->IsOOPJITEnabled())
-        {
-            // TODO: OOP JIT, should we always just queue this in background?
-            // OOP JIT TODO: need error handling?
-            JITManager::GetJITManager()->FreeAllocation(context->GetRemoteThreadContextAddr(), (intptr_t)address);
-            return;
-        }
-        else
-        {
-            if (this->foregroundAllocators->emitBufferManager.FreeAllocation(address))
-            {
-                return;
-            }
-        }
+        return;
     }
 
     // The background allocators were used. Queue a job to free the allocation from the background thread.
@@ -3666,7 +3652,15 @@ JITManager::HandleServerCallResult(HRESULT hr, RemoteCallType callType)
     case E_ABORT:
         throw Js::OperationAbortedException();
     case E_OUTOFMEMORY:
-        Js::Throw::OutOfMemory();
+        if (callType == RemoteCallType::MemFree)
+        {
+            // if freeing memory fails due to OOM, it means we failed to fill with debug breaks -- so failfast
+            RpcFailure_fatal_error(hr);
+        }
+        else
+        {
+            Js::Throw::OutOfMemory();
+        }
     case VBSERR_OutOfStack:
         throw Js::StackOverflowException();
     default:
@@ -3697,6 +3691,7 @@ JITManager::HandleServerCallResult(HRESULT hr, RemoteCallType callType)
     case RemoteCallType::ThunkCreation:
         Js::Throw::OutOfMemory();
     case RemoteCallType::StateUpdate:
+    case RemoteCallType::MemFree:
         // if server process is gone, we can ignore failures updating its state
         return;
     default:

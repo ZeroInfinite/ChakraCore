@@ -144,6 +144,16 @@ public:
         return m_pidRefStack;
     }
 
+    PidRefStack *GetTopRef(uint maxBlockId) const
+    {
+        PidRefStack *ref;
+        for (ref = m_pidRefStack; ref && (uint)ref->id > maxBlockId; ref = ref->prev)
+        {
+            ; // nothing
+        }
+        return ref;
+    }
+
     void SetTopRef(PidRefStack *ref)
     {
         m_pidRefStack = ref;
@@ -314,11 +324,11 @@ public:
 class HashTbl
 {
 public:
-    static HashTbl * Create(uint cidHash, ErrHandler * perr);
+    static HashTbl * Create(uint cidHash);
 
     void Release(void)
     {
-        delete this;
+        delete this;  // invokes overrided operator delete
     }
 
 
@@ -374,27 +384,29 @@ public:
         );
 
     tokens TkFromNameLen(_In_reads_(cch) LPCOLESTR prgch, uint32 cch, bool isStrictMode);
-    tokens TkFromNameLenColor(_In_reads_(cch) LPCOLESTR prgch, uint32 cch);
     NoReleaseAllocator* GetAllocator() {return &m_noReleaseAllocator;}
 
     bool Contains(_In_reads_(cch) LPCOLESTR prgch, int32 cch);
-private:
 
+private:
     NoReleaseAllocator m_noReleaseAllocator;            // to allocate identifiers
     Ident ** m_prgpidName;        // hash table for names
 
     uint32 m_luMask;                // hash mask
-    uint32 m_luCount;              // count of the number of entires in the hash table
-    ErrHandler * m_perr;        // error handler to use
+    uint32 m_luCount;              // count of the number of entires in the hash table    
     IdentPtr m_rpid[tkLimKwd];
 
-    HashTbl(ErrHandler * perr)
+    HashTbl()
     {
         m_prgpidName = nullptr;
-        m_perr = perr;
         memset(&m_rpid, 0, sizeof(m_rpid));
     }
     ~HashTbl(void) {}
+
+    void operator delete(void* p, size_t size)
+    {
+        HeapFree(p, size);
+    }
 
     // Called to grow the number of buckets in the table to reduce the table density.
     void Grow();
@@ -471,6 +483,7 @@ private:
     static const KWD * KwdOfTok(tokens tk)
     { return (unsigned int)tk < tkLimKwd ? g_mptkkwd + tk : nullptr; }
 
+    static __declspec(noreturn) void OutOfMemory();
 #if PROFILE_DICTIONARY
     DictionaryStats *stats;
 #endif
