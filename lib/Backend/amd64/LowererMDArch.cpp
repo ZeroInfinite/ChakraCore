@@ -376,7 +376,7 @@ LowererMDArch::LoadHeapArguments(IR::Instr *instrArgs)
             // s2 = actual argument count (without counting "this")
             instr = this->lowererMD->LoadInputParamCount(instrArgs, -1);
             IR::Opnd * opndInputParamCount = instr->GetDst();
-            
+
             this->LoadHelperArgument(instrArgs, opndInputParamCount);
 
             // s1 = current function
@@ -420,6 +420,40 @@ LowererMDArch::LoadNewScObjFirstArg(IR::Instr * instr, IR::Opnd * dst, ushort ex
     IR::Instr *     argInstr        = LowererMD::CreateAssign(argOpnd, dst, instr);
 
     return argInstr;
+}
+
+inline static RegNum GetRegFromArgPosition(const bool isFloatArg, const uint16 argPosition)
+{
+    RegNum reg = RegNOREG;
+
+    if (!isFloatArg && argPosition <= IntArgRegsCount)
+    {
+        switch (argPosition)
+        {
+#define REG_INT_ARG(Index, Name)    \
+case ((Index) + 1):         \
+reg = Reg ## Name;      \
+break;
+#include "RegList.h"
+            default:
+                Assume(UNREACHED);
+        }
+    }
+    else if (isFloatArg && argPosition <= XmmArgRegsCount)
+    {
+        switch (argPosition)
+        {
+#define REG_XMM_ARG(Index, Name)    \
+case ((Index) + 1):         \
+reg = Reg ## Name;      \
+break;
+#include "RegList.h"
+            default:
+                Assume(UNREACHED);
+        }
+    }
+
+    return reg;
 }
 
 int32
@@ -913,23 +947,31 @@ LowererMDArch::LowerCall(IR::Instr * callInstr, uint32 argCount)
     // Manually home args
     if (shouldHomeParams)
     {
-        static const RegNum s_argRegs[IntArgRegsCount] = {
-    #define REG_INT_ARG(Index, Name)  Reg ## Name,
-    #include "RegList.h"
-        };
-
         const int callArgCount = this->helperCallArgsCount + static_cast<int>(argCount);
-        const int argRegs = min(callArgCount, static_cast<int>(IntArgRegsCount));
-        for (int i = argRegs - 1; i >= 0; i--)
+
+        int argRegs = min(callArgCount, static_cast<int>(XmmArgRegsCount));
+
+        for (int i = argRegs; i > 0; i--)
         {
-            StackSym * sym = this->m_func->m_symTable->GetArgSlotSym(static_cast<uint16>(i + 1));
+            IRType type     = this->xplatCallArgs.args[i];
+            bool isFloatArg = this->xplatCallArgs.IsFloat(i);
+
+            if ( i > IntArgRegsCount && !isFloatArg ) continue;
+
+            StackSym * sym = this->m_func->m_symTable->GetArgSlotSym(static_cast<uint16>(i));
+            RegNum reg = GetRegFromArgPosition(isFloatArg, i);
+
+            IR::RegOpnd *regOpnd = IR::RegOpnd::New(nullptr, reg, type, this->m_func);
+            regOpnd->m_isCallArg = true;
+
             Lowerer::InsertMove(
-                IR::SymOpnd::New(sym, TyMachReg, this->m_func),
-                IR::RegOpnd::New(nullptr, s_argRegs[i], TyMachReg, this->m_func),
+                IR::SymOpnd::New(sym, type, this->m_func),
+                regOpnd,
                 callInstr, false);
         }
     }
-#endif
+    this->xplatCallArgs.Reset();
+#endif // !_WIN32
 
     //
     // load the address into a register because we cannot directly access 64 bit constants
@@ -992,34 +1034,13 @@ LowererMDArch::GetArgSlotOpnd(uint16 index, StackSym * argSym, bool isHelper /*=
 
     IRType type = argSym ? argSym->GetType() : TyMachReg;
     const bool isFloatArg = IRType_IsFloat(type) || IRType_IsSimd128(type);
-    RegNum reg = RegNOREG;
-
-    if (!isFloatArg && argPosition <= IntArgRegsCount)
+    RegNum reg = GetRegFromArgPosition(isFloatArg, argPosition);
+#ifndef _WIN32
+    if (isFloatArg && argPosition <= XmmArgRegsCount)
     {
-        switch (argPosition)
-        {
-#define REG_INT_ARG(Index, Name)    \
-        case ((Index) + 1):         \
-            reg = Reg ## Name;      \
-            break;
-#include "RegList.h"
-        default:
-            Assume(UNREACHED);
-        }
+        this->xplatCallArgs.SetFloat(argPosition);
     }
-    else if (isFloatArg && argPosition <= XmmArgRegsCount)
-    {
-        switch (argPosition)
-        {
-#define REG_XMM_ARG(Index, Name)    \
-        case ((Index) + 1):         \
-            reg = Reg ## Name;      \
-            break;
-#include "RegList.h"
-        default:
-            Assume(UNREACHED);
-        }
-    }
+#endif
 
     if (reg != RegNOREG)
     {
@@ -1148,7 +1169,9 @@ LowererMDArch::LowerAsmJsLdElemHelper(IR::Instr * instr, bool isSimdLoad /*= fal
             // MOV tmp, cmpOnd
             Lowerer::InsertMove(tmp, cmpOpnd, helperLabel);
             // ADD tmp, dataWidth
-            Lowerer::InsertAdd(false, tmp, tmp, IR::IntConstOpnd::New((uint32)dataWidth, tmp->GetType(), m_func, true), helperLabel);
+            Lowerer::InsertAdd(true, tmp, tmp, IR::IntConstOpnd::New((uint32)dataWidth, tmp->GetType(), m_func, true), helperLabel);
+            // JB helper
+            Lowerer::InsertBranch(Js::OpCode::JB, helperLabel, helperLabel);
             // CMP tmp, size
             // JG  $helper
             lowererMD->m_lowerer->InsertCompareBranch(tmp, instr->UnlinkSrc2(), Js::OpCode::BrGt_A, true, helperLabel, helperLabel);
@@ -1224,7 +1247,9 @@ LowererMDArch::LowerAsmJsStElemHelper(IR::Instr * instr, bool isSimdStore /*= fa
             // MOV tmp, cmpOnd
             Lowerer::InsertMove(tmp, cmpOpnd, helperLabel);
             // ADD tmp, dataWidth
-            Lowerer::InsertAdd(false, tmp, tmp, IR::IntConstOpnd::New((uint32)dataWidth, tmp->GetType(), m_func, true), helperLabel);
+            Lowerer::InsertAdd(true, tmp, tmp, IR::IntConstOpnd::New((uint32)dataWidth, tmp->GetType(), m_func, true), helperLabel);
+            // JB helper
+            Lowerer::InsertBranch(Js::OpCode::JB, helperLabel, helperLabel);
             // CMP tmp, size
             // JG  $helper
             lowererMD->m_lowerer->InsertCompareBranch(tmp, instr->UnlinkSrc2(), Js::OpCode::BrGt_A, true, helperLabel, helperLabel);
@@ -2576,7 +2601,7 @@ LowererMDArch::EmitUIntToFloat(IR::Opnd *dst, IR::Opnd *src, IR::Instr *instrIns
 }
 
 bool
-LowererMDArch::EmitLoadInt32(IR::Instr *instrLoad, bool conversionFromObjectAllowed)
+LowererMDArch::EmitLoadInt32(IR::Instr *instrLoad, bool conversionFromObjectAllowed, bool bailOutOnHelper, IR::LabelInstr * labelBailOut)
 {
     //
     //    r1 = MOV src1
@@ -2629,8 +2654,29 @@ LowererMDArch::EmitLoadInt32(IR::Instr *instrLoad, bool conversionFromObjectAllo
         (src1ValueType.IsLikelyFloat() || src1ValueType.IsLikelyUntaggedInt()) &&
                 !(instrLoad->HasBailOutInfo() && (instrLoad->GetBailOutKind() == IR::BailOutIntOnly || instrLoad->GetBailOutKind() == IR::BailOutExpectingInteger));
 
-    if (!isNotInt)
+    if (isNotInt)
     {
+        // Known to be non-integer. If we are required to bail out on helper call, just re-jit.
+        if (!doFloatToIntFastPath && bailOutOnHelper)
+        {
+            if(!GlobOpt::DoAggressiveIntTypeSpec(this->m_func))
+            {
+                // Aggressive int type specialization is already off for some reason. Prevent trying to rejit again
+                // because it won't help and the same thing will happen again. Just abort jitting this function.
+                if(PHASE_TRACE(Js::BailOutPhase, this->m_func))
+                {
+                    Output::Print(_u("    Aborting JIT because AggressiveIntTypeSpec is already off\n"));
+                    Output::Flush();
+                }
+                throw Js::OperationAbortedException();
+            }
+
+            throw Js::RejitException(RejitReason::AggressiveIntTypeSpecDisabled);
+        }
+    }
+    else
+    {
+        // It could be an integer in this case.
         if (!isInt)
         {
             if(doFloatToIntFastPath)
@@ -2718,7 +2764,13 @@ LowererMDArch::EmitLoadInt32(IR::Instr *instrLoad, bool conversionFromObjectAllo
             return true;
         }
 
-        if (conversionFromObjectAllowed)
+        if (bailOutOnHelper)
+        {
+            Assert(labelBailOut);
+            lowererMD->m_lowerer->InsertBranch(Js::OpCode::Br, labelBailOut, instrLoad);
+            instrLoad->Remove();
+        }
+        else if (conversionFromObjectAllowed)
         {
             lowererMD->m_lowerer->LowerUnaryHelperMem(instrLoad, IR::HelperConv_ToInt32);
         }

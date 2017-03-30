@@ -828,6 +828,16 @@
 
 #define PROCESS_SET_ELEM_LOCALSLOTNonVar(name, func) PROCESS_SET_ELEM_LOCALSLOTNonVar_COMMON(name, func,)
 
+#define PROCESS_SET_ELEM_PARAMSLOTNonVar_COMMON(name, func, suffix) \
+    case OpCode::name: \
+    { \
+        PROCESS_READ_LAYOUT(name, ElementSlotI1, suffix); \
+        func((Var*)GetParamClosure(), playout->SlotIndex, GetRegAllowStackVarEnableOnly(playout->Value)); \
+        break; \
+    }
+
+#define PROCESS_SET_ELEM_PARAMSLOTNonVar(name, func) PROCESS_SET_ELEM_PARAMSLOTNonVar_COMMON(name, func,); \
+
 #define PROCESS_SET_ELEM_INNERSLOTNonVar_COMMON(name, func, suffix) \
     case OpCode::name: \
     { \
@@ -2768,16 +2778,18 @@ namespace Js
 
                 AsmJsScriptFunction* scriptFuncObj = (AsmJsScriptFunction*)ScriptFunction::OP_NewScFunc(pDisplay, functionInfo);
                 localModuleFunctions[modFunc.location] = scriptFuncObj;
+
+                if (scriptFuncObj->GetDynamicType()->GetEntryPoint() == DefaultDeferredDeserializeThunk)
+                {
+                    JavascriptFunction::DeferredDeserialize(scriptFuncObj);
+                }
+
                 if (i == 0 && info->GetUsesChangeHeap())
                 {
                     scriptFuncObj->GetDynamicType()->SetEntryPoint(AsmJsChangeHeapBuffer);
                 }
                 else
                 {
-                    if (scriptFuncObj->GetDynamicType()->GetEntryPoint() == DefaultDeferredDeserializeThunk)
-                    {
-                        JavascriptFunction::DeferredDeserialize(scriptFuncObj);
-                    }
                     scriptFuncObj->GetDynamicType()->SetEntryPoint(AsmJsExternalEntryPoint);
                     scriptFuncObj->GetFunctionBody()->GetAsmJsFunctionInfo()->SetModuleFunctionBody(asmJsModuleFunctionBody);
                 }
@@ -3041,7 +3053,7 @@ namespace Js
             {
                 Assert(typeInfo->constSrcByteOffset != Js::Constants::InvalidOffset);
                 uint constByteSize = typeInfo->constCount * WAsmJs::GetTypeByteSize(type);
-                memcpy_s(destination, constByteSize, source, constByteSize);
+                memmove_s(destination, constByteSize, source, constByteSize);
             }
         }
 
@@ -6342,6 +6354,7 @@ const byte * InterpreterStackFrame::OP_ProfiledLoopBodyStart(const byte * ip)
                 PROBE_STACK(scriptContext, outArgs.Info.Count * sizeof(Var) + Js::Constants::MinStackDefault); // args + function call
                 outArgsSize = outArgs.Info.Count * sizeof(Var);
                 outArgs.Values = (Var*)_alloca(outArgsSize);
+                ZeroMemory(outArgs.Values, outArgsSize);
             }
             else
             {
@@ -6825,7 +6838,9 @@ const byte * InterpreterStackFrame::OP_ProfiledLoopBodyStart(const byte * ip)
 
         this->SetIsParamScopeDone(true);
 
-        if (executeFunction->scopeSlotArraySize > 0)
+        // Create a new local closure for the body when either body scope has scope slots allocated or
+        // eval is present which can leak declarations.
+        if (executeFunction->scopeSlotArraySize > 0 || executeFunction->HasScopeObject())
         {
             this->InitializeClosures();
         }
@@ -8330,6 +8345,16 @@ const byte * InterpreterStackFrame::OP_ProfiledLoopBodyStart(const byte * ip)
             Js::Throw::FatalInternalError();
         }
         return this->localClosure;
+    }
+
+    Var InterpreterStackFrame::OP_LdParamObj()
+    {
+        if (!VirtualTableInfo<ActivationObject>::HasVirtualTable(this->paramClosure) &&
+            !VirtualTableInfo<ActivationObjectEx>::HasVirtualTable(this->paramClosure))
+        {
+            Js::Throw::FatalInternalError();
+        }
+        return this->paramClosure;
     }
 
 #ifdef ASMJS_PLAT

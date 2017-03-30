@@ -75,6 +75,10 @@ public:
     void LowerGeneratorResumeJumpTable();
 
     void DoInterruptProbes();
+
+    static IR::Instr * TryShiftAdd(IR::Instr *instrAdd, IR::Opnd * opndFold, IR::Opnd * opndAdd);
+    static IR::Instr *PeepShiftAdd(IR::Instr *instr);
+
     IR::Instr *PreLowerPeepInstr(IR::Instr *instr, IR::Instr **pInstrPrev);
     IR::Instr *PeepShl(IR::Instr *instr);
     IR::Instr *PeepBrBool(IR::Instr *instr);
@@ -394,6 +398,7 @@ private:
     void            GenerateFastInlineStringCodePointAt(IR::Instr* doneLabel, Func* func, IR::Opnd *strLength, IR::Opnd *srcIndex, IR::RegOpnd *lowerChar, IR::RegOpnd *strPtr);
     bool            GenerateFastInlineStringCharCodeAt(IR::Instr* instr, Js::BuiltinFunction index);
     bool            GenerateFastInlineStringReplace(IR::Instr* instr);
+    void            GenerateFastInlineHasOwnProperty(IR::Instr * instr);
     void            GenerateFastInlineArrayPush(IR::Instr * instr);
     void            GenerateFastInlineArrayPop(IR::Instr * instr);
     void            GenerateFastInlineStringSplitMatch(IR::Instr * instr);

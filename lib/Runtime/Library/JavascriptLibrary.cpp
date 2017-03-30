@@ -1053,7 +1053,6 @@ namespace Js
             // during PostCollectCallBack before Dispose deleting the script context.
             scriptContext->ResetWeakReferenceDictionaryList();
             scriptContext->SetIsFinalized();
-            scriptContext->GetThreadContext()->UnregisterScriptContext(scriptContext);
             scriptContext->MarkForClose();
         }
     }
@@ -1102,30 +1101,30 @@ namespace Js
         nullString = CreateEmptyString(); // Must be distinct from emptyString (for the DOM)
         quotesString = CreateStringFromCppLiteral(_u("\"\""));
         whackString = CreateStringFromCppLiteral(_u("/"));
-        undefinedDisplayString = CreateStringFromCppLiteral(_u("undefined"));
-        nanDisplayString = CreateStringFromCppLiteral(_u("NaN"));
-        nullDisplayString = CreateStringFromCppLiteral(_u("null"));
-        unknownDisplayString = CreateStringFromCppLiteral(_u("unknown"));
         commaDisplayString = CreateStringFromCppLiteral(_u(","));
         commaSpaceDisplayString = CreateStringFromCppLiteral(_u(", "));
-        trueDisplayString = CreateStringFromCppLiteral(_u("true"));
-        falseDisplayString = CreateStringFromCppLiteral(_u("false"));
-        lengthDisplayString = CreateStringFromCppLiteral(_u("length"));
         objectDisplayString = CreateStringFromCppLiteral(_u("[object Object]"));
         errorDisplayString = CreateStringFromCppLiteral(_u("[object Error]"));
-        stringTypeDisplayString = CreateStringFromCppLiteral(_u("string"));
         functionPrefixString = CreateStringFromCppLiteral(_u("function "));
         generatorFunctionPrefixString = CreateStringFromCppLiteral(_u("function* "));
         asyncFunctionPrefixString = CreateStringFromCppLiteral(_u("async function "));
         functionDisplayString = CreateStringFromCppLiteral(JS_DISPLAY_STRING_FUNCTION_ANONYMOUS);
         xDomainFunctionDisplayString = CreateStringFromCppLiteral(_u("function anonymous() {\n    [x-domain code]\n}"));
         invalidDateString = CreateStringFromCppLiteral(_u("Invalid Date"));
-        objectTypeDisplayString = CreateStringFromCppLiteral(_u("object"));
-        functionTypeDisplayString = CreateStringFromCppLiteral(_u("function"));
-        booleanTypeDisplayString = CreateStringFromCppLiteral(_u("boolean"));
-        numberTypeDisplayString = CreateStringFromCppLiteral(_u("number"));
-        moduleTypeDisplayString = CreateStringFromCppLiteral(_u("Module"));
-        variantDateTypeDisplayString = CreateStringFromCppLiteral(_u("date"));
+        undefinedDisplayString = scriptContext->GetPropertyString(PropertyIds::undefined);
+        nanDisplayString = scriptContext->GetPropertyString(PropertyIds::NaN);
+        nullDisplayString = scriptContext->GetPropertyString(PropertyIds::null);
+        unknownDisplayString = scriptContext->GetPropertyString(PropertyIds::unknown);
+        trueDisplayString = scriptContext->GetPropertyString(PropertyIds::true_);
+        falseDisplayString = scriptContext->GetPropertyString(PropertyIds::false_);
+        stringTypeDisplayString = scriptContext->GetPropertyString(PropertyIds::string);
+        objectTypeDisplayString = scriptContext->GetPropertyString(PropertyIds::object);
+        functionTypeDisplayString = scriptContext->GetPropertyString(PropertyIds::function);
+        booleanTypeDisplayString = scriptContext->GetPropertyString(PropertyIds::boolean_);
+        numberTypeDisplayString = scriptContext->GetPropertyString(PropertyIds::number);
+        moduleTypeDisplayString = scriptContext->GetPropertyString(PropertyIds::Module);
+        variantDateTypeDisplayString = scriptContext->GetPropertyString(PropertyIds::date);
+        symbolTypeDisplayString = scriptContext->GetPropertyString(PropertyIds::symbol);
         promiseResolveFunction = nullptr;
         generatorNextFunction = nullptr;
         generatorThrowFunction = nullptr;
@@ -1149,7 +1148,6 @@ namespace Js
         }
 #endif
 
-        symbolTypeDisplayString = CreateStringFromCppLiteral(_u("symbol"));
 
         symbolHasInstance = CreateSymbol(BuiltInPropertyRecords::_symbolHasInstance);
         symbolIsConcatSpreadable = CreateSymbol(BuiltInPropertyRecords::_symbolIsConcatSpreadable);
@@ -1630,6 +1628,26 @@ namespace Js
         arrayConstructor->SetHasNoEnumerableProperties(true);
     }
 
+    JavascriptFunction* JavascriptLibrary::EnsureArrayPrototypeForEachFunction()
+    {
+        if (arrayPrototypeForEachFunction == nullptr)
+        {
+            arrayPrototypeForEachFunction = DefaultCreateFunction(&JavascriptArray::EntryInfo::ForEach, 1, nullptr, nullptr, PropertyIds::forEach);
+        }
+
+        return arrayPrototypeForEachFunction;
+    }
+
+    JavascriptFunction* JavascriptLibrary::EnsureArrayPrototypeKeysFunction()
+    {
+        if (arrayPrototypeKeysFunction == nullptr)
+        {
+            arrayPrototypeKeysFunction = DefaultCreateFunction(&JavascriptArray::EntryInfo::Keys, 0, nullptr, nullptr, PropertyIds::keys);
+        }
+
+        return arrayPrototypeKeysFunction;
+    }
+
     JavascriptFunction* JavascriptLibrary::EnsureArrayPrototypeValuesFunction()
     {
         if (arrayPrototypeValuesFunction == nullptr)
@@ -1638,6 +1656,16 @@ namespace Js
         }
 
         return arrayPrototypeValuesFunction;
+    }
+
+    JavascriptFunction* JavascriptLibrary::EnsureArrayPrototypeEntriesFunction()
+    {
+        if (arrayPrototypeEntriesFunction == nullptr)
+        {
+            arrayPrototypeEntriesFunction = DefaultCreateFunction(&JavascriptArray::EntryInfo::Entries, 0, nullptr, nullptr, PropertyIds::entries);
+        }
+
+        return arrayPrototypeEntriesFunction;
     }
 
     void JavascriptLibrary::InitializeArrayPrototype(DynamicObject* arrayPrototype, DeferredTypeHandlerBase * typeHandler, DeferredInitializeMode mode)
@@ -1685,7 +1713,10 @@ namespace Js
         builtinFuncs[BuiltinFunction::JavascriptArray_IndexOf]        = library->AddFunctionToLibraryObject(arrayPrototype, PropertyIds::indexOf,         &JavascriptArray::EntryInfo::IndexOf,           1);
         /* No inlining                Array_Every          */ library->AddFunctionToLibraryObject(arrayPrototype, PropertyIds::every,           &JavascriptArray::EntryInfo::Every,             1);
         /* No inlining                Array_Filter         */ library->AddFunctionToLibraryObject(arrayPrototype, PropertyIds::filter,          &JavascriptArray::EntryInfo::Filter,            1);
-        /* No inlining                Array_ForEach        */ library->AddFunctionToLibraryObject(arrayPrototype, PropertyIds::forEach,         &JavascriptArray::EntryInfo::ForEach,           1);
+
+        /* No inlining                Array_ForEach        */
+        library->AddMember(arrayPrototype, PropertyIds::forEach, library->EnsureArrayPrototypeForEachFunction());
+
         builtinFuncs[BuiltinFunction::JavascriptArray_LastIndexOf]    = library->AddFunctionToLibraryObject(arrayPrototype, PropertyIds::lastIndexOf,     &JavascriptArray::EntryInfo::LastIndexOf,       1);
         /* No inlining                Array_Map            */ library->AddFunctionToLibraryObject(arrayPrototype, PropertyIds::map,             &JavascriptArray::EntryInfo::Map,               1);
         /* No inlining                Array_Reduce         */ library->AddFunctionToLibraryObject(arrayPrototype, PropertyIds::reduce,          &JavascriptArray::EntryInfo::Reduce,            1);
@@ -1698,8 +1729,11 @@ namespace Js
             /* No inlining            Array_FindIndex      */ library->AddFunctionToLibraryObject(arrayPrototype, PropertyIds::findIndex,       &JavascriptArray::EntryInfo::FindIndex,         1);
         }
 
-        /* No inlining                Array_Entries        */ library->AddFunctionToLibraryObject(arrayPrototype, PropertyIds::entries,         &JavascriptArray::EntryInfo::Entries,           0);
-        /* No inlining                Array_Keys           */ library->AddFunctionToLibraryObject(arrayPrototype, PropertyIds::keys,            &JavascriptArray::EntryInfo::Keys,              0);
+        /* No inlining                Array_Entries        */
+        library->AddMember(arrayPrototype, PropertyIds::entries, library->EnsureArrayPrototypeEntriesFunction());
+
+        /* No inlining                Array_Keys           */
+        library->AddMember(arrayPrototype, PropertyIds::keys, library->EnsureArrayPrototypeKeysFunction());
 
         JavascriptFunction *values = library->EnsureArrayPrototypeValuesFunction();
         /* No inlining                Array_Values         */ library->AddMember(arrayPrototype, PropertyIds::values, values);
@@ -3731,6 +3765,9 @@ namespace Js
         case PropertyIds::exec:
             return BuiltinFunction::JavascriptRegExp_Exec;
 
+        case PropertyIds::hasOwnProperty:
+            return BuiltinFunction::JavascriptObject_HasOwnProperty;
+
         default:
             return BuiltinFunction::None;
         }
@@ -4164,12 +4201,13 @@ namespace Js
     {
         JavascriptLibrary* library = objectPrototype->GetLibrary();
         ScriptContext* scriptContext = objectPrototype->GetScriptContext();
+        Field(JavascriptFunction*)* builtinFuncs = library->GetBuiltinFunctions();
 
         typeHandler->Convert(objectPrototype, mode, 11, true);
         // Note: Any new function addition/deletion/modification should also be updated in JavascriptLibrary::ProfilerRegisterObject
         // so that the update is in sync with profiler
         library->AddMember(objectPrototype, PropertyIds::constructor, library->objectConstructor);
-        library->AddFunctionToLibraryObject(objectPrototype, PropertyIds::hasOwnProperty, &JavascriptObject::EntryInfo::HasOwnProperty, 1);
+        builtinFuncs[BuiltinFunction::JavascriptObject_HasOwnProperty] = library->AddFunctionToLibraryObject(objectPrototype, PropertyIds::hasOwnProperty, &JavascriptObject::EntryInfo::HasOwnProperty, 1);
         library->AddFunctionToLibraryObject(objectPrototype, PropertyIds::propertyIsEnumerable, &JavascriptObject::EntryInfo::PropertyIsEnumerable, 1);
         library->AddFunctionToLibraryObject(objectPrototype, PropertyIds::isPrototypeOf, &JavascriptObject::EntryInfo::IsPrototypeOf, 1);
         library->AddFunctionToLibraryObject(objectPrototype, PropertyIds::toLocaleString, &JavascriptObject::EntryInfo::ToLocaleString, 0);
@@ -7024,7 +7062,6 @@ namespace Js
 
         case OpCode::InlineRegExpExec:
             return BuiltinFunction::JavascriptRegExp_Exec;
-
         }
 
         return BuiltinFunction::None;

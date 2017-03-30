@@ -293,8 +293,7 @@ namespace Js
         CleanupDocumentContext = nullptr;
 #endif
 
-        // Do this after all operations that may cause potential exceptions
-        threadContext->RegisterScriptContext(this);
+        // Do this after all operations that may cause potential exceptions. Note: InitialAllocations may still throw!
         numberAllocator.Initialize(this->GetRecycler());
 
 #if DEBUG
@@ -467,6 +466,10 @@ namespace Js
                 }
             }
         }
+
+        // Normally the JavascriptLibraryBase will unregister the scriptContext from the threadContext.
+        // In cases where we don't finish initialization e.g. OOM, manually unregister the scriptContext.
+        threadContext->UnregisterScriptContext(this);
 
 #if ENABLE_BACKGROUND_PARSING
         if (this->backgroundParser != nullptr)
@@ -1404,6 +1407,8 @@ namespace Js
         // Assigned the global Object after we have successfully AddRef (in case of OOM)
         globalObject = localGlobalObject;
         globalObject->Initialize(this);
+
+        this->GetThreadContext()->RegisterScriptContext(this);
     }
 
     ArenaAllocator* ScriptContext::AllocatorForDiagnostics()
@@ -1810,7 +1815,7 @@ namespace Js
             // Free unused bytes
             Assert(cbNeeded + 1 <= cbUtf8Buffer);
             *ppSourceInfo = Utf8SourceInfo::New(this, utf8Script, (int)length,
-                cbNeeded, pSrcInfo, isLibraryCode, scriptSource);
+                cbNeeded, pSrcInfo, isLibraryCode);
         }
         else
         {
@@ -1830,7 +1835,7 @@ namespace Js
                     // the 'length' here is not correct - we will get the length from the parser - however parser hasn't done yet.
                     // Once the parser is done we will update the utf8sourceinfo's lenght correctly with parser's
                     *ppSourceInfo = Utf8SourceInfo::New(this, script,
-                        (int)length, cb, pSrcInfo, isLibraryCode, scriptSource);
+                        (int)length, cb, pSrcInfo, isLibraryCode);
                 }
             }
         }

@@ -369,6 +369,12 @@
   </test>
   <test>
     <default>
+      <files>bug10191241.js</files>
+      <compile-flags>-forceundodefer</compile-flags>
+    </default>
+  </test>
+  <test>
+    <default>
       <files>InlineFunctionParameterWithInfiniteLoop.js</files>
       <compile-flags>-maxinterpretcount:1 -off:simplejit</compile-flags>
     </default>
@@ -390,6 +396,12 @@
     <default>
       <files>MissToGenerateStStSlotForJITLoopBody.js</files>
       <compile-flags>-mic:1 -off:simplejit -oopjit- -bgjit-</compile-flags>
+    </default>
+  </test>
+  <test>
+    <default>
+      <files>cmpfgpeep.js</files>
+      <compile-flags> -maxsimplejitruncount:1 -maxinterpretcount:1 </compile-flags>
     </default>
   </test>
 </regress-exe>

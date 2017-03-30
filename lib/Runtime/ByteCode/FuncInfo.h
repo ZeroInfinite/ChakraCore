@@ -83,6 +83,8 @@ private:
     uint        nextForInLoopLevel;
     uint        maxForInLoopLevel;
 public:
+    static const Js::RegSlot InitialConstRegsCount = 2; // constRegsCount is set to 2 because R0 is the return register, and R1 is the root object
+
     ArenaAllocator *alloc;
     // set in Bind/Assign pass
     Js::RegSlot varRegsCount; // number of registers used for non-constants
@@ -135,11 +137,11 @@ public:
     uint escapes : 1;
     uint hasDeferredChild : 1; // switch for DeferNested to persist outer scopes
     uint hasRedeferrableChild : 1;
-    uint childHasWith : 1; // deferNested needs to know if child has with
     uint hasLoop : 1;
     uint hasEscapedUseNestedFunc : 1;
     uint needEnvRegister : 1;
     uint hasCapturedThis : 1;
+    uint isBodyAndParamScopeMerged : 1;
 #if DBG
     // FunctionBody was reused on recompile of a redeferred enclosing function.
     uint isReused:1;
@@ -177,22 +179,16 @@ public:
     typedef JsUtil::BaseDictionary<SlotKey, Js::ProfileId, ArenaAllocator, PowerOf2SizePolicy, SlotKeyComparer> SlotProfileIdMap;
     SlotProfileIdMap slotProfileIdMap;
     Js::PropertyId thisScopeSlot;
-    Js::PropertyId innerThisScopeSlot; // Used in case of split scope
     Js::PropertyId superScopeSlot;
-    Js::PropertyId innerSuperScopeSlot; // Used in case of split scope
     Js::PropertyId superCtorScopeSlot;
-    Js::PropertyId innerSuperCtorScopeSlot; // Used in case of split scope
     Js::PropertyId newTargetScopeSlot;
-    Js::PropertyId innerNewTargetScopeSlot; // Used in case of split scope
     bool isThisLexicallyCaptured;
     bool isSuperLexicallyCaptured;
     bool isSuperCtorLexicallyCaptured;
     bool isNewTargetLexicallyCaptured;
     Symbol *argumentsSymbol;
-    Symbol *innerArgumentsSymbol;
     JsUtil::List<Js::RegSlot, ArenaAllocator> nonUserNonTempRegistersToInitialize;
 
-    // constRegsCount is set to 2 because R0 is the return register, and R1 is the root object.
     FuncInfo(
         const char16 *name,
         ArenaAllocator *alloc,
@@ -312,22 +308,6 @@ public:
     {
         Assert(argumentsSymbol == nullptr || argumentsSymbol == sym);
         argumentsSymbol = sym;
-    }
-
-    Symbol *GetInnerArgumentsSymbol() const
-    {
-        return innerArgumentsSymbol;
-    }
-
-    void SetInnerArgumentsSymbol(Symbol *sym)
-    {
-        Assert(innerArgumentsSymbol == nullptr || innerArgumentsSymbol == sym);
-        innerArgumentsSymbol = sym;
-    }
-
-    bool IsInnerArgumentsSymbol(Symbol* sym)
-    {
-        return innerArgumentsSymbol != nullptr && innerArgumentsSymbol == sym;
     }
 
     bool GetCallsEval() const {
@@ -465,20 +445,20 @@ public:
         return this->byteCodeFunction->GetFunctionBody();
     }
 
-    bool ChildHasWith() const {
-        return childHasWith;
-    }
-
-    void SetChildHasWith() {
-        childHasWith = true;
-    }
-
     bool HasCapturedThis() const {
         return hasCapturedThis;
     }
 
     void SetHasCapturedThis() {
         hasCapturedThis = true;
+    }
+
+    bool IsBodyAndParamScopeMerged() const {
+        return isBodyAndParamScopeMerged;
+    }
+
+    void ResetBodyAndParamScopeMerged() {
+        isBodyAndParamScopeMerged = false;
     }
 
     BOOL HasSuperReference() const;
@@ -812,7 +792,6 @@ public:
     void EnsureSuperScopeSlot();
     void EnsureSuperCtorScopeSlot();
     void EnsureNewTargetScopeSlot();
-    void UseInnerSpecialScopeSlots();
 
     void SetIsThisLexicallyCaptured()
     {
