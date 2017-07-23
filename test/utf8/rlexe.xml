@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <regress-exe>
   <test>
     <default>
@@ -16,7 +16,7 @@
   <test>
     <default>
       <files>OS_2977448.js</files>
-      <tags>fail_mutators,exclude_winglob,BugFix</tags>
+      <tags>exclude_winglob,BugFix</tags>
     </default>
   </test>
   <test>
@@ -33,6 +33,12 @@
     <default>
       <files>unicode_sequence_serialized.js</files>
       <compile-flags>-forceserialized -oopjit-</compile-flags>
+    </default>
+  </test>
+  <test>
+    <default>
+      <files>bugGH2656.js</files>
+      <compile-flags>-args summary -endargs</compile-flags>
     </default>
   </test>
 </regress-exe>

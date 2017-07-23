@@ -227,10 +227,6 @@ typedef unsigned short uint16_t;
         /// </summary>
         JsErrorModuleParsed,
         /// <summary>
-        ///     Module was evaluated already when JsModuleEvaluation is called.
-        /// </summary>
-        JsErrorModuleEvaluated,
-        /// <summary>
         ///     Category of errors that relates to errors occurring within the engine itself.
         /// </summary>
         JsErrorCategoryEngine = 0x20000,
@@ -2062,6 +2058,7 @@ typedef unsigned short uint16_t;
             _Outptr_result_bytebuffer_(*bufferLength) ChakraBytePtr *buffer,
             _Out_ unsigned int *bufferLength);
 
+
     /// <summary>
     ///     Invokes a function.
     /// </summary>
@@ -2387,7 +2384,7 @@ typedef unsigned short uint16_t;
     /// </returns>
     CHAKRA_API
         JsSetPromiseContinuationCallback(
-            _In_ JsPromiseContinuationCallback promiseContinuationCallback,
+            _In_opt_ JsPromiseContinuationCallback promiseContinuationCallback,
             _In_opt_ void *callbackState);
 
 #ifdef _WIN32

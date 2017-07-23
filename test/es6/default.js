@@ -55,6 +55,23 @@ var tests = [
       assert.throws(function () { function foo(a = 1) { eval('var a;'); }; foo() },     ReferenceError, "Var redeclaration throws with a non-simple parameter list inside an eval", "Let/Const redeclaration");
       assert.throws(function () { function foo(a = 1, b) { eval('var b;'); }; foo(); }, ReferenceError, "Var redeclaration throws with a non-simple parameter list on a non-default parameter inside eval", "Let/Const redeclaration");
 
+      assert.throws(function () { eval("function foo(a) { let a; };"); }, SyntaxError, "Duplicate let decalration in the body should throw redeclaration error", "Let/Const redeclaration");
+      assert.throws(function () { eval("function foo(a) { const a = 1; };"); }, SyntaxError, "Duplicate const decalration in the body should throw redeclaration error", "Let/Const redeclaration");
+      assert.throws(function () { eval("(a) => { let a; };"); }, SyntaxError, "Duplicate let decalration in the body of an arrow function should throw redeclaration error", "Let/Const redeclaration");
+      assert.throws(function () { eval("(a) => { const a = 1; };"); }, SyntaxError, "Duplicate const decalration in the body of an arrow function should throw redeclaration error", "Let/Const redeclaration", "Let/Const redeclaration");
+      assert.throws(function () { eval("function foo(a, b = () => a) { let b; };"); }, SyntaxError, "Duplicate let decalration in the body of a split scope function should throw redeclaration error", "Let/Const redeclaration");
+      assert.throws(function () { eval("function foo(a, b = () => a) { const b = 1; };"); }, SyntaxError, "Duplicate const decalration in the body of a split scope function should throw redeclaration error", "Let/Const redeclaration");
+      assert.throws(function () { eval("function foo(arguments, b = () => arguments) { let arguments; };"); }, SyntaxError, "Duplicate let definition of arguments should throw redeclaration error", "Let/Const redeclaration");
+      assert.throws(function () { eval("function foo(arguments, b = () => arguments) { const arguments = 1; };"); }, SyntaxError, "Duplicate const definition of arguments should throw redeclaration error", "Let/Const redeclaration");
+      assert.throws(function () { eval("(a, b = () => a) => { let b; };"); }, SyntaxError, "Duplicate let decalration in the body of a split scope arrow function should throw redeclaration error", "Let/Const redeclaration");
+      assert.throws(function () { eval("(a, b = () => a) => { const b = 1; };"); }, SyntaxError, "Duplicate const decalration in the body of a split scope arrow function should throw redeclaration error", "Let/Const redeclaration");
+      assert.throws(function () { eval("(arguments, b = () => arguments) => { let arguments; };"); }, SyntaxError, "Duplicate let definition of arguments in an arrow function should throw redeclaration error", "Let/Const redeclaration");
+      assert.throws(function () { eval("(arguments, b = () => arguments) => { const arguments = 1; };"); }, SyntaxError, "Duplicate const definition of arguments in an arrow function should throw redeclaration error", "Let/Const redeclaration");
+      assert.throws(function () { eval("function foo({a, b = () => a}) { let b; };"); }, SyntaxError, "Duplicate let decalration in the body of a function with destructured param should throw redeclaration error", "Let/Const redeclaration");
+      assert.throws(function () { eval("function foo([a], b = () => a) { const b = 1; };"); }, SyntaxError, "Duplicate const decalration in the body of a function with destructured param should throw redeclaration error", "Let/Const redeclaration");
+      assert.throws(function () { eval("function foo([arguments, b = () => arguments]) { let arguments; };"); }, SyntaxError, "Duplicate let definition of arguments in a function with destructured params should throw redeclaration error", "Let/Const redeclaration");
+      assert.throws(function () { eval("function foo(arguments, {b = () => arguments}) { const arguments = 1; };"); }, SyntaxError, "Duplicate const definition of arguments in a function with destructured params should throw redeclaration error", "Let/Const redeclaration");
+
       assert.doesNotThrow(function () { function foo(a = 1) { eval('let a;'); }; foo() },           "Let redeclaration inside an eval does not throw with a non-simple parameter list");
       assert.doesNotThrow(function () { function foo(a = 1) { eval('const a = "str";'); }; foo() }, "Const redeclaration inside an eval does not throw with a non-simple parameter list");
       assert.doesNotThrow(function () { function foo(a = 1) { eval('let a;'); }; foo() },           "Let redeclaration of a non-default parameter inside an eval does not throw with a non-simple parameter list");
@@ -148,31 +165,31 @@ var tests = [
       assert.throws(function() { foo1(); },
                     ReferenceError,
                     "Shadowed var in parameter scope is not affected by body initialization when setting the default value",
-                    "'x' is undefined");
+                    "'x' is not defined");
 
       function foo2(a = () => x) { var x = 1; return a(); }
       assert.throws(function () { foo2(); },
                     ReferenceError,
                     "Arrow function capturing var at parameter scope is not affected by body declaration",
-                    "'x' is undefined");
+                    "'x' is not defined");
 
       function foo3(a = () => x) { var x = 1; return a; } // a() undefined
       assert.throws(function () { foo3()(); },
                     ReferenceError,
                     "Attempted closure capture of body scoped var throws in an arrow function default expression",
-                    "'x' is undefined");
+                    "'x' is not defined");
 
       function foo4(a = function() { return x; }) { var x = 1; return a(); }
       assert.throws(function () { foo4(); },
                     ReferenceError,
                     "Attempted closure capture of body scoped var throws in an anonymous function default expression",
-                    "'x' is undefined");
+                    "'x' is not defined");
 
       function foo5(a = function bar() { return 1; }, b = bar()) { return [a(), b]; }
       assert.throws(function () { foo5(); },
                     ReferenceError,
                     "Named function expression does not leak name into subsequent default expressions",
-                    "'bar' is undefined");
+                    "'bar' is not defined");
       function foo6(a = b1) {
           {
               function b1() {

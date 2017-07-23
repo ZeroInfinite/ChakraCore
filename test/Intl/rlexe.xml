@@ -2,7 +2,14 @@
 <regress-exe>
   <test>
     <default>
-      <compile-flags>-Intl</compile-flags>
+      <files>Basics.js</files>
+      <tags>Intl,exclude_winglob</tags>
+      <compile-flags>-args summary -endargs</compile-flags>
+    </default>
+  </test>
+
+  <test>
+    <default>
       <files>Collator.js</files>
       <tags>Intl,exclude_winglob</tags>
     </default>
@@ -23,10 +30,9 @@
   </test>
   <test>
     <default>
-      <compile-flags>-Intl</compile-flags>
       <files>NumberFormat.js</files>
       <baseline>NumberFormat.baseline</baseline>
-      <tags>Intl,exclude_winglob</tags>
+      <tags>Intl,exclude_winglob,exclude_drt</tags>
     </default>
   </test>
   <test>
@@ -36,69 +42,71 @@
       <tags>Intl</tags>
     </default>
   </test>
-  <test>
-    <default>
-      <!-- Variant of test to run on Win10 -->
-      <files>NumberFormatOptionsImplSpecific-Win10.js</files>
-      <tags>Intl,exclude_winBlue,exclude_win8,exclude_win7</tags>
-      <compile-flags>-args summary -endargs</compile-flags>
-    </default>
-  </test>
-  <test>
-    <default>
-      <!-- Variant of test to run on WinBlue and earlier -->
-      <files>NumberFormatOptionsImplSpecific-WinBlue.js</files>
-      <tags>Intl,exclude_win10</tags>
-      <compile-flags>-args summary -endargs</compile-flags>
-    </default>
-  </test>
 
   <test>
     <default>
-      <compile-flags>-Intl -args summary -endargs</compile-flags>
-      <files>SupportedLocalesOf.js</files>
+      <files>GetCanonicalLocales.js</files>
+      <compile-flags>-args summary -endargs</compile-flags>
       <tags>Intl,exclude_winglob</tags>
     </default>
   </test>
   <test>
     <default>
-      <compile-flags>-Intl</compile-flags>
+      <files>SupportedLocalesOf.js</files>
+      <compile-flags>-args summary -endargs</compile-flags>
+      <tags>Intl,exclude_winglob</tags>
+    </default>
+  </test>
+  <test>
+    <default>
       <files>IntlHiddenInternals.js</files>
       <tags>Intl,exclude_winglob</tags>
     </default>
   </test>
   <test>
     <default>
-      <compile-flags>-Intl</compile-flags>
       <files>IntlTaintingTests.js</files>
       <baseline>IntlTaintingTests.baseline</baseline>
       <tags>Intl,exclude_winglob</tags>
     </default>
   </test>
+  <test>
+    <default>
+      <files>IntlTaintingPreInitTests.js</files>
+      <baseline>IntlTaintingPreInitTests.baseline</baseline>
+      <tags>Intl,exclude_winglob,exclude_drt</tags>
+    </default>
+  </test>
 
   <test>
     <default>
-      <compile-flags>-Intl</compile-flags>
       <files>IntlBuiltIns.js</files>
       <tags>Intl,exclude_winglob</tags>
     </default>
   </test>
+  <test>
+    <default>
+      <files>IntlIdentities.js</files>
+      <compile-flags>-args summary -endargs</compile-flags>
+      <tags>Intl,exclude_winglob</tags>
+    </default>
+  </test>
 
   <test>
     <default>
-      <!-- TODO (doilij) investigate why -ExtendedErrorStackForTestHost inserts tabs at the beginning of some frames -->
-      <compile-flags>-Intl -ExtendedErrorStackForTestHost-</compile-flags>
+      <!-- TODO investigate why -ExtendedErrorStackForTestHost inserts tabs at the beginning of some frames (Microsoft/ChakraCore#3130) -->
       <files>IntlInternalsHiddenFromExceptionStackTest.js</files>
       <baseline>IntlInternalsHiddenFromExceptionStackTest.baseline</baseline>
+      <compile-flags>-ExtendedErrorStackForTestHost-</compile-flags>
       <tags>Intl,exclude_winglob</tags>
     </default>
   </test>
   <test>
     <default>
-      <!-- TODO (doilij) investigate why -ExtendedErrorStackForTestHost inserts tabs at the beginning of some frames -->
-      <compile-flags>-Intl -ExtendedErrorStackForTestHost-</compile-flags>
+      <!-- TODO investigate why -ExtendedErrorStackForTestHost inserts tabs at the beginning of some frames (Microsoft/ChakraCore#3130) -->
       <files>IntlInternalsHiddenFromFirstChanceExceptionStackTest.js</files>
       <baseline>IntlInternalsHiddenFromFirstChanceExceptionStackTest.baseline</baseline>
+      <compile-flags>-ExtendedErrorStackForTestHost-</compile-flags>
       <tags>Intl,exclude_winglob</tags>
     </default>
   </test>

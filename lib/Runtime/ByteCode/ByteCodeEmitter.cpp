@@ -11,10 +11,12 @@ void EmitAssignment(ParseNode *asgnNode, ParseNode *lhs, Js::RegSlot rhsLocation
 void EmitLoad(ParseNode *rhs, ByteCodeGenerator *byteCodeGenerator, FuncInfo *funcInfo);
 void EmitCall(ParseNode* pnode, Js::RegSlot rhsLocation, ByteCodeGenerator* byteCodeGenerator, FuncInfo* funcInfo, BOOL fReturnValue, BOOL fEvaluateComponents, BOOL fHasNewTarget, Js::RegSlot overrideThisLocation = Js::Constants::NoRegister);
 void EmitSuperFieldPatch(FuncInfo* funcInfo, ParseNode* pnode, ByteCodeGenerator* byteCodeGenerator);
+void EmitYield(Js::RegSlot inputLocation, Js::RegSlot resultLocation, ByteCodeGenerator* byteCodeGenerator, FuncInfo* funcInfo, Js::RegSlot yieldStarIterator = Js::Constants::NoRegister);
 
 void EmitUseBeforeDeclaration(Symbol *sym, ByteCodeGenerator *byteCodeGenerator, FuncInfo *funcInfo);
 void EmitUseBeforeDeclarationRuntimeError(ByteCodeGenerator *byteCodeGenerator, Js::RegSlot location);
 void VisitClearTmpRegs(ParseNode * pnode, ByteCodeGenerator * byteCodeGenerator, FuncInfo * funcInfo);
+void EmitSuperMethodBegin(ParseNode *pnodeTarget, ByteCodeGenerator *byteCodeGenerator, FuncInfo *funcInfo);
 
 bool CallTargetIsArray(ParseNode *pnode)
 {
@@ -2631,6 +2633,10 @@ void ByteCodeGenerator::EmitThis(FuncInfo *funcInfo, Js::RegSlot fromRegister)
             Js::PropertyId slot = parent->thisScopeSlot;
             EmitInternalScopedSlotLoad(funcInfo, scope, envIndex, slot, funcInfo->thisPointerRegister, false);
         }
+        else
+        {
+            m_writer.Reg1(Js::OpCode::LdUndef, funcInfo->thisPointerRegister);
+        }
     }
     else if (funcInfo->byteCodeFunction->GetIsStrictMode() && (!funcInfo->IsGlobalFunction() || this->flags & fscrEval))
     {
@@ -3359,6 +3365,18 @@ void ByteCodeGenerator::EmitOneFunction(ParseNode *pnode)
             }
         }
 
+        // If the function has non simple parameter list, the params needs to be evaluated when the generator object is created
+        // (that is when the function is called). This yield opcode is to mark the  begining of the function body.
+        // TODO: Inserting a yield should have almost no impact on perf as it is a direct return from the function. But this needs
+        // to be verified. Ideally if the function has simple parameter list then we can avoid inserting the opcode and the additional call.
+        if (pnode->sxFnc.IsGenerator())
+        {
+            Js::RegSlot tempReg = funcInfo->AcquireTmpRegister();
+            EmitYield(funcInfo->AssignUndefinedConstRegister(), tempReg, this, funcInfo);
+            m_writer.Reg1(Js::OpCode::Unused, tempReg);
+            funcInfo->ReleaseTmpRegister(tempReg);
+        }
+
         // Emit all scope-wide function definitions before emitting function bodies
         // so that calls may reference functions they precede lexically.
         // Note, global eval scope is a fake local scope and is handled as if it were
@@ -3401,11 +3419,11 @@ void ByteCodeGenerator::EmitOneFunction(ParseNode *pnode)
             Symbol* funcSym = funcInfo->root->sxFnc.GetFuncSymbol();
             paramScope->ForEachSymbol([&](Symbol* param) {
                 Symbol* varSym = funcInfo->GetBodyScope()->FindLocalSymbol(param->GetName());
-                if (varSym)
+                if ((funcSym == nullptr || funcSym != param)    // Do not copy the symbol over to body as the function expression symbol
+                                                                // is expected to stay inside the function expression scope
+                    && (varSym && varSym->GetSymbolType() == STVariable && (varSym->IsInSlot(funcInfo) || varSym->GetLocation() != Js::Constants::NoRegister)))
                 {
-                    if ((funcSym == nullptr || funcSym != param)    // Do not copy the symbol over to body as the function expression symbol
-                                                                    // is expected to stay inside the function expression scope
-                        && (varSym->GetSymbolType() == STVariable && (varSym->IsInSlot(funcInfo) || varSym->GetLocation() != Js::Constants::NoRegister)))
+                    if (varSym->GetSymbolType() == STVariable && (varSym->IsInSlot(funcInfo) || varSym->GetLocation() != Js::Constants::NoRegister))
                     {
                         if (!varSym->GetNeedDeclaration())
                         {
@@ -5944,7 +5962,7 @@ void ByteCodeGenerator::RecordAllStrConstants(FuncInfo * funcInfo)
     Js::FunctionBody *byteCodeFunction = this->TopFuncInfo()->GetParsedFunctionBody();
     funcInfo->stringToRegister.Map([byteCodeFunction](IdentPtr pid, Js::RegSlot location)
     {
-        byteCodeFunction->RecordStrConstant(byteCodeFunction->MapRegSlot(location), pid->Psz(), pid->Cch());
+        byteCodeFunction->RecordStrConstant(byteCodeFunction->MapRegSlot(location), pid->Psz(), pid->Cch(), pid->IsUsedInLdElem());
     });
 }
 
@@ -6728,6 +6746,7 @@ void EmitTopLevelFinally(Js::ByteCodeLabel finallyLabel,
 
     byteCodeGenerator->Writer()->Br(afterFinallyBlockLabel);
     byteCodeGenerator->Writer()->MarkLabel(finallyLabel);
+    byteCodeGenerator->Writer()->Empty(Js::OpCode::Finally);
 
     ByteCodeGenerator::TryScopeRecord tryRecForFinally(Js::OpCode::ResumeFinally, finallyLabel, yieldExceptionLocation, yieldOffsetLocation);
     if (isCoroutine)
@@ -7070,6 +7089,7 @@ void EmitAssignment(
         Js::PropertyId propertyId = lhs->sxBin.pnode2->sxPid.PropertyIdFromNameNode();
 
         uint cacheId = funcInfo->FindOrAddInlineCacheId(lhs->sxBin.pnode1->location, propertyId, false, true);
+        EmitSuperMethodBegin(lhs, byteCodeGenerator, funcInfo);
         if (lhs->sxBin.pnode1->nop == knopSuper)
         {
             Js::RegSlot tmpReg = byteCodeGenerator->EmitLdObjProto(Js::OpCode::LdHomeObjProto, funcInfo->superRegister, funcInfo);
@@ -7086,9 +7106,16 @@ void EmitAssignment(
 
     case knopIndex:
     {
+        Js::RegSlot targetLocation =
+            (lhs->sxBin.pnode1->nop == knopSuper) ?
+            byteCodeGenerator->EmitLdObjProto(Js::OpCode::LdHomeObjProto, funcInfo->superRegister, funcInfo) :
+            lhs->sxBin.pnode1->location;
+
+        EmitSuperMethodBegin(lhs, byteCodeGenerator, funcInfo);
         byteCodeGenerator->Writer()->Element(
             ByteCodeGenerator::GetStElemIOpCode(funcInfo),
-            rhsLocation, lhs->sxBin.pnode1->location, lhs->sxBin.pnode2->location);
+            rhsLocation, targetLocation, lhs->sxBin.pnode2->location);
+
         break;
     }
 
@@ -10154,8 +10181,7 @@ void ByteCodeGenerator::EmitTryBlockHeadersAfterYield()
     }
 }
 
-void EmitYield(Js::RegSlot inputLocation, Js::RegSlot resultLocation, ByteCodeGenerator* byteCodeGenerator, FuncInfo* funcInfo,
-    Js::RegSlot yieldStarIterator = Js::Constants::NoRegister)
+void EmitYield(Js::RegSlot inputLocation, Js::RegSlot resultLocation, ByteCodeGenerator* byteCodeGenerator, FuncInfo* funcInfo, Js::RegSlot yieldStarIterator)
 {
     // If the bytecode emitted by this function is part of 'yield*', inputLocation is the object
     // returned by the iterable's next/return/throw method. Otherwise, it is the yielded value.
@@ -10802,6 +10828,15 @@ void Emit(ParseNode *pnode, ByteCodeGenerator *byteCodeGenerator, FuncInfo *func
         if (pnode->sxCall.pnodeTarget->nop == knopSuper)
         {
             byteCodeGenerator->EmitSuperCall(funcInfo, pnode, fReturnValue);
+        }
+        else if (pnode->sxCall.pnodeTarget->nop == knopImport)
+        {
+            ParseNodePtr args = pnode->sxCall.pnodeArgs;
+            Assert(CountArguments(args) == 2); // import() takes one argument
+            Emit(args, byteCodeGenerator, funcInfo, false);
+            funcInfo->ReleaseLoc(args);
+            funcInfo->AcquireLoc(pnode);
+            byteCodeGenerator->Writer()->Reg2(Js::OpCode::ImportCall, pnode->location, args->location);
         }
         else
         {
@@ -11852,6 +11887,7 @@ void Emit(ParseNode *pnode, ByteCodeGenerator *byteCodeGenerator, FuncInfo *func
 
         byteCodeGenerator->Writer()->Br(pnode->sxStmt.breakLabel);
         byteCodeGenerator->Writer()->MarkLabel(finallyLabel);
+        byteCodeGenerator->Writer()->Empty(Js::OpCode::Finally);
 
         ByteCodeGenerator::TryScopeRecord tryRecForFinally(Js::OpCode::ResumeFinally, finallyLabel, regException, regOffset);
         if (funcInfo->byteCodeFunction->IsCoroutine())
